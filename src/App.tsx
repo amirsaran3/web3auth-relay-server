@@ -11,18 +11,20 @@ import { InMemorySigner, keyStores, providers, utils } from "near-api-js";
 import { getED25519Key } from "@toruslabs/openlogin-ed25519";
 import { signTransactions } from "@near-wallet-selector/wallet-utils";
 import { Network, NetworkId, Transaction } from "@near-wallet-selector/core";
+import SignIn from "./components/SignIn/SignIn";
+import SignAndSendTransaction from "./components/SignAndSendTransaction/SignAndSendTransaction";
 
 const NETWORK_ID = "testnet";
 const RPC_URL = "https://rpc.testnet.near.org";
 
-type UrlParams = {
+export type UrlParams = {
   action: string | null;
   originUrl: string | null;
   clientId: string | null;
   loginProvider: string | null;
   email: string | null;
   contractId: string | null;
-  transaction: string | null;
+  transactions: string | null;
 };
 
 function App() {
@@ -151,7 +153,7 @@ function App() {
     }
   };
 
-  const signTransaction = async (openloginProvider: SafeEventEmitterProvider, transaction: Transaction) => {
+  const signAndSendTransactions = async (openloginProvider: SafeEventEmitterProvider, transactions: Array<Transaction>) => {
     const keyStore = new keyStores.InMemoryKeyStore();
     const signer = new InMemorySigner(keyStore);
     const keyPair = await getKeyPair(openloginProvider, keyStore);
@@ -160,16 +162,25 @@ function App() {
       throw new Error("No keyPair");
     }
 
-    const [signedTx] = await signTransactions(
-      [transaction],
+    const signedTxs = await signTransactions(
+      transactions,
       signer,
       getNetworkPreset(NETWORK_ID),
     );
 
-    return signedTx;
+    const provider = new providers.JsonRpcProvider({
+      url: RPC_URL,
+    });
+    const results: Array<providers.FinalExecutionOutcome> = [];
+
+    for (let i = 0; i < signedTxs.length; i += 1) {
+      results.push(await provider.sendTransaction(signedTxs[i]));
+    }
+
+    return results;
   };
 
-  const approveTransaction = async () => {
+  const approveTransactions = async () => {
     if (!web3auth) {
       throw new Error("web3auth not initialized");
     }
@@ -182,21 +193,23 @@ function App() {
       throw new Error("urlParams not found");
     }
 
-    if (!urlParams.transaction) {
-      throw new Error("urlParams.transaction not found");
+    if (!urlParams.transactions) {
+      throw new Error("urlParams.transactions not found");
     }
     
-    const transaction: Transaction = JSON.parse(Buffer.from(urlParams.transaction, "base64").toString());
+    const transactions: Array<Transaction> = JSON.parse(Buffer.from(urlParams.transactions, "base64").toString());
     
-    const signedTx = await signTransaction(web3auth.provider, transaction);
+    const result = await signAndSendTransactions(web3auth.provider, transactions);
     
+    if (!result) {
+      throw new Error("signAndSendTransactions failed");
+    }
+
     if (!urlParams.originUrl) {
       throw new Error("urlParams.originUrl not found");
     }
 
     const url = new URL(urlParams.originUrl);
-    url.searchParams.set("signedTransaction", Buffer.from(signedTx.encode()).toString("base64"));
-
     window.location.assign(url.toString());
   };
 
@@ -210,7 +223,7 @@ function App() {
       loginProvider: url.searchParams.get("loginProvider"),
       email: url.searchParams.get("email"),
       contractId: url.searchParams.get("contractId"),
-      transaction: url.searchParams.get("transaction"),
+      transactions: url.searchParams.get("transactions"),
     };
   }
 
@@ -264,9 +277,8 @@ function App() {
         }
       } catch (error) {
         if (urlParams.originUrl) {
-          console.log(":::::", error);
-          // const url = new URL(urlParams.originUrl);
-          // window.location.assign(url.toString());
+          const url = new URL(urlParams.originUrl);
+          window.location.assign(url.toString());
         }
       }
     };
@@ -274,12 +286,10 @@ function App() {
     init();
   }, []);
 
-  
-
   return (
     <div>
-      {urlParams && urlParams.action === "signIn" && <button onClick={signIn}>Connect</button>}
-      {urlParams && urlParams.action === "signTransaction" && <button onClick={approveTransaction}>Approve</button>}
+      {urlParams && urlParams.action === "signIn" && <SignIn urlParams={urlParams} signIn={signIn} />}
+      {urlParams && urlParams.action === "signAndSendTransactions" && <SignAndSendTransaction urlParams={urlParams} approveTransactions={approveTransactions} />}
     </div>
   );
 }
