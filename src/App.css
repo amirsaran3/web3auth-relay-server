@@ -11,6 +11,7 @@ body {
 .modal {
   margin: auto;
   min-width: 500px;
+  width: 1000px;
   min-height: 40vh;
   padding: 2em;
   border-radius: 10px;

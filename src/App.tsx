@@ -14,12 +14,10 @@ import { Network, NetworkId, Transaction } from "@near-wallet-selector/core";
 import SignIn from "./components/SignIn/SignIn";
 import SignAndSendTransaction from "./components/SignAndSendTransaction/SignAndSendTransaction";
 
-const NETWORK_ID = "testnet";
-const RPC_URL = "https://rpc.testnet.near.org";
-
 export type UrlParams = {
   action: string | null;
   originUrl: string | null;
+  networkId: string | null;
   clientId: string | null;
   loginProvider: string | null;
   email: string | null;
@@ -30,6 +28,7 @@ export type UrlParams = {
 function App() {
   const [web3auth, setWeb3Auth] = useState<Web3AuthCore>();
   const [urlParams, setUrlParams] = useState<UrlParams>();
+  const [network, setNetwork] = useState<Network>();
 
   const getAccountIdFromPublicKey = (publicKeyData: Uint8Array) => {
     return Buffer.from(publicKeyData).toString("hex");
@@ -95,7 +94,7 @@ function App() {
       const accountId = getAccountIdFromPublicKey(publicKey.data);
 
       const provider = new providers.JsonRpcProvider({
-        url: RPC_URL,
+        url: network!.nodeUrl,
       });
       
       const block = await provider.block({ finality: "final" });
@@ -111,7 +110,7 @@ function App() {
       const signed = await signer.signMessage(
         new Uint8Array(Buffer.from(JSON.stringify(data))),
         accountId,
-        NETWORK_ID
+        network!.networkId
       );
 
       const encoded = Buffer.from(JSON.stringify({
@@ -130,7 +129,7 @@ function App() {
     window.location.assign(url.toString());
   }
 
-  const getNetworkPreset = (networkId: NetworkId): Network => {
+  const getNetwork = (networkId: string): Network => {
     switch (networkId) {
       case "mainnet":
         return {
@@ -165,11 +164,11 @@ function App() {
     const signedTxs = await signTransactions(
       transactions,
       signer,
-      getNetworkPreset(NETWORK_ID),
+      network!,
     );
 
     const provider = new providers.JsonRpcProvider({
-      url: RPC_URL,
+      url: network!.nodeUrl,
     });
     const results: Array<providers.FinalExecutionOutcome> = [];
 
@@ -219,6 +218,7 @@ function App() {
     return {
       action: url.searchParams.get("action"),
       originUrl: url.searchParams.get("originUrl"),
+      networkId: url.searchParams.get("networkId"),
       clientId: url.searchParams.get("clientId"),
       loginProvider: url.searchParams.get("loginProvider"),
       email: url.searchParams.get("email"),
@@ -231,17 +231,23 @@ function App() {
     const init = async () => {
       const urlParams = parseUrlParams();
       setUrlParams(urlParams);
-
+      
       if (!urlParams.clientId) {
         throw new Error("clientId parameter missing");
       }
+
+      if (!urlParams.networkId) {
+        throw new Error("networkId parameter missing");
+      }
+      const network = getNetwork(urlParams.networkId);
+      setNetwork(network);
 
       try {
         const web3auth = new Web3AuthCore({
           clientId: urlParams.clientId,
           chainConfig: {
             chainNamespace: CHAIN_NAMESPACES.OTHER,
-            rpcTarget: RPC_URL
+            rpcTarget: network!.nodeUrl
           },
         });
 
@@ -250,7 +256,7 @@ function App() {
         const openloginAdapter = new OpenloginAdapter({
           adapterSettings: {
             clientId: urlParams.clientId,
-            network: NETWORK_ID,
+            network: network!.networkId as NetworkId,
             uxMode: "popup",
           },
           loginSettings: {
@@ -277,6 +283,7 @@ function App() {
         }
       } catch (error) {
         if (urlParams.originUrl) {
+          console.error(error)
           const url = new URL(urlParams.originUrl);
           window.location.assign(url.toString());
         }
